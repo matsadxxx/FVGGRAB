@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+pybit
+pandas
+numpy
+jinja2
