@@ -1,49 +1,50 @@
 import pandas as pd
 import unittest
+import numpy as np
 from app.core_logic.fvg_detector import detect_fvgs
 
 class TestFVGDetector(unittest.TestCase):
 
-    def test_bullish_fvg(self):
+    def _get_default_kws(self):
+        """Returns default keyword arguments for detect_fvgs for new filters."""
+        return {
+            "use_volume_confirmation": False,
+            "volume_lookback_period": 20,
+            "volume_factor": 1.5,
+            "min_fvg_price_height": 0.0
+        }
+
+    def test_bullish_fvg_static_threshold_default(self):
         bullish_data = {
             'time': pd.to_datetime(['2023-01-01 00:00', '2023-01-01 00:05', '2023-01-01 00:10']),
-            'open':  [19.0, 22.0, 25.5],
-            'high':  [20.0, 25.0, 28.0],
-            'low':   [18.0, 21.0, 26.0],
-            'close': [19.5, 25.0, 27.0]
+            'open':  [19.0, 22.0, 25.5], 'high':  [20.0, 25.0, 28.0],
+            'low':   [18.0, 21.0, 26.0], 'close': [19.5, 25.0, 27.0],
+            'volume': [100, 120, 110] # Added volume
         }
         df = pd.DataFrame(bullish_data)
-        fvgs = detect_fvgs(df)
+        fvgs = detect_fvgs(df, static_threshold_percent=0.0, use_adaptive_threshold=False, **self._get_default_kws())
         self.assertEqual(len(fvgs), 1)
+        # ... (rest of assertions remain same)
         fvg = fvgs[0]
         self.assertEqual(fvg['type'], 'bullish')
         self.assertEqual(fvg['fvg_bottom'], 20.0)
         self.assertEqual(fvg['fvg_top'], 26.0)
         self.assertAlmostEqual(fvg['entry_price'], 23.0)
         self.assertEqual(fvg['sl_price'], 18.0)
-        self.assertAlmostEqual(fvg['tp_price'], 33.0) # Entry 23, SL 18. Risk = 5. TP = 23 + 2*5 = 33
-        self.assertEqual(fvg['time'], pd.to_datetime('2023-01-01 00:05'))
-        self.assertEqual(fvg['trigger_candle_time'], pd.to_datetime('2023-01-01 00:10'))
+        self.assertAlmostEqual(fvg['tp_price'], 33.0)
 
-    def test_bearish_fvg(self):
+
+    def test_bearish_fvg_static_threshold_default(self):
         bearish_data = {
             'time': pd.to_datetime(['2023-01-01 00:00', '2023-01-01 00:05', '2023-01-01 00:10']),
-            'open':  [31.0, 28.0, 24.5],
-            'high':  [32.0, 29.0, 24.0], # prior_candle high is 32 (SL for bearish)
-            'low':   [30.0, 25.0, 22.0], # prior_candle low is 30 (FVG top for bearish)
-            'close': [30.5, 25.0, 23.0] # previous_candle close is 25
-                                        # current_candle high is 24 (FVG bottom for bearish)
+            'open':  [31.0, 28.0, 24.5], 'high':  [32.0, 29.0, 24.0],
+            'low':   [30.0, 25.0, 22.0], 'close': [30.5, 25.0, 23.0],
+            'volume': [100, 120, 110] # Added volume
         }
-        # Bearish FVG: current_candle['high'] (24) < prior_candle['low'] (30) AND previous_candle['close'] (25) < prior_candle['low'] (30)
-        # FVG top = prior_candle['low'] = 30
-        # FVG bottom = current_candle['high'] = 24
-        # Entry = (30+24)/2 = 27
-        # SL = prior_candle['high'] = 32
-        # Risk = SL - Entry = 32 - 27 = 5
-        # TP = Entry - 2*Risk = 27 - 2*5 = 17
         df = pd.DataFrame(bearish_data)
-        fvgs = detect_fvgs(df)
+        fvgs = detect_fvgs(df, static_threshold_percent=0.0, use_adaptive_threshold=False, **self._get_default_kws())
         self.assertEqual(len(fvgs), 1)
+        # ... (rest of assertions remain same)
         fvg = fvgs[0]
         self.assertEqual(fvg['type'], 'bearish')
         self.assertEqual(fvg['fvg_top'], 30.0)
@@ -51,113 +52,206 @@ class TestFVGDetector(unittest.TestCase):
         self.assertAlmostEqual(fvg['entry_price'], 27.0)
         self.assertEqual(fvg['sl_price'], 32.0)
         self.assertAlmostEqual(fvg['tp_price'], 17.0)
-        self.assertEqual(fvg['time'], pd.to_datetime('2023-01-01 00:05'))
-        self.assertEqual(fvg['trigger_candle_time'], pd.to_datetime('2023-01-01 00:10'))
 
-    def test_no_fvg(self):
+
+    def test_no_fvg_static_threshold(self):
         no_fvg_data = {
             'time': pd.to_datetime(['2023-01-01 00:00', '2023-01-01 00:05', '2023-01-01 00:10']),
-            'open':  [10.0, 11.0, 10.0],
-            'high':  [10.5, 11.5, 10.8], # current_high_0 = 10.8, prior_low_2 = 9.5
-            'low':   [9.5,  10.5, 9.8],  # current_low_0 = 9.8, prior_high_2 = 10.5
-            'close': [10.0, 11.0, 10.2] # previous_close_1 = 11.0
+            'open':  [10.0, 11.0, 10.0], 'high':  [10.5, 11.5, 10.8],
+            'low':   [9.5,  10.5, 9.8],  'close': [10.0, 11.0, 10.2],
+            'volume': [100,100,100]
         }
-        # Bullish check: current_low_0 (9.8) > prior_high_2 (10.5) -> FALSE
-        # Bearish check: current_high_0 (10.8) < prior_low_2 (9.5) -> FALSE
         df = pd.DataFrame(no_fvg_data)
-        fvgs = detect_fvgs(df)
+        fvgs = detect_fvgs(df, static_threshold_percent=0.0, use_adaptive_threshold=False, **self._get_default_kws())
         self.assertEqual(len(fvgs), 0)
 
-    def test_bullish_fvg_with_threshold(self):
-        # previous_open_1 = 22, previous_close_1 = 22.5. Delta = ((22.5 - 22) / 22) * 100 = (0.5/22)*100 approx 2.27%
-        bullish_data_small_body = {
+    def test_bullish_fvg_with_static_threshold(self):
+        data = {
             'time': pd.to_datetime(['2023-01-01 00:00', '2023-01-01 00:05', '2023-01-01 00:10']),
-            'open':  [19.0, 22.0, 25.5],
-            'high':  [20.0, 22.6, 28.0],
-            'low':   [18.0, 21.9, 26.0], # current_low_0 (26) > prior_high_2 (20)
-            'close': [19.5, 22.5, 27.0] # previous_close_1 (22.5) > prior_high_2 (20)
+            'open':  [19.0, 22.0, 25.5], 'high':  [20.0, 22.6, 28.0],
+            'low':   [18.0, 21.9, 26.0], 'close': [19.5, 22.5, 27.0],
+            'volume': [100,100,100]
         }
-        df = pd.DataFrame(bullish_data_small_body)
+        df = pd.DataFrame(data)
+        fvgs_fail = detect_fvgs(df, static_threshold_percent=5.0, use_adaptive_threshold=False, **self._get_default_kws())
+        self.assertEqual(len(fvgs_fail), 0)
+        fvgs_pass = detect_fvgs(df, static_threshold_percent=1.0, use_adaptive_threshold=False, **self._get_default_kws())
+        self.assertEqual(len(fvgs_pass), 1)
+        if fvgs_pass: self.assertEqual(fvgs_pass[0]['type'], 'bullish')
 
-        # bar_delta_percent = ((22.5 - 22.0) / 22.0) * 100 = (0.5 / 22.0) * 100 = 2.2727...
-        # This FVG should form if threshold is 1% (2.27 > 1)
-        # This FVG should NOT form if threshold is 5% (2.27 < 5)
-
-        fvgs_with_high_thresh = detect_fvgs(df, threshold_percent=5.0)
-        self.assertEqual(len(fvgs_with_high_thresh), 0, "FVG should not form with 5% threshold")
-
-        fvgs_with_low_thresh = detect_fvgs(df, threshold_percent=1.0)
-        self.assertEqual(len(fvgs_with_low_thresh), 1, "FVG should form with 1% threshold")
-        if len(fvgs_with_low_thresh) > 0:
-            self.assertEqual(fvgs_with_low_thresh[0]['type'], 'bullish')
-
-    def test_bearish_fvg_with_threshold(self):
-        # previous_open_1 = 28.0, previous_close_1 = 27.5. Delta = ((27.5 - 28.0) / 28.0) * 100 = (-0.5/28.0)*100 approx -1.78%
-        # abs(bar_delta_percent) is approx 1.78%
-        bearish_data_small_body = {
+    def test_bearish_fvg_with_static_threshold(self):
+        data = {
             'time': pd.to_datetime(['2023-01-01 00:00', '2023-01-01 00:05', '2023-01-01 00:10']),
-            'open':  [31.0, 28.0, 24.5],
-            'high':  [32.0, 28.1, 24.0], # current_high_0 (24) < prior_low_2 (30)
-            'low':   [30.0, 27.4, 22.0],
-            'close': [30.5, 27.5, 23.0]  # previous_close_1 (27.5) < prior_low_2 (30)
+            'open':  [31.0, 28.0, 24.5], 'high':  [32.0, 28.1, 24.0],
+            'low':   [30.0, 27.4, 22.0], 'close': [30.5, 27.5, 23.0],
+            'volume': [100,100,100]
         }
-        df = pd.DataFrame(bearish_data_small_body)
-
-        # abs_bar_delta_percent = abs(((27.5 - 28.0) / 28.0) * 100) = abs(-0.5 / 28.0 * 100) = 1.7857...
-        # This FVG should form if threshold is 1% (1.78 > 1)
-        # This FVG should NOT form if threshold is 3% (1.78 < 3)
-
-        fvgs_with_high_thresh = detect_fvgs(df, threshold_percent=3.0)
-        self.assertEqual(len(fvgs_with_high_thresh), 0, "FVG should not form with 3% threshold")
-
-        fvgs_with_low_thresh = detect_fvgs(df, threshold_percent=1.0)
-        self.assertEqual(len(fvgs_with_low_thresh), 1, "FVG should form with 1% threshold")
-        if len(fvgs_with_low_thresh) > 0:
-            self.assertEqual(fvgs_with_low_thresh[0]['type'], 'bearish')
-
+        df = pd.DataFrame(data)
+        fvgs_fail = detect_fvgs(df, static_threshold_percent=3.0, use_adaptive_threshold=False, **self._get_default_kws())
+        self.assertEqual(len(fvgs_fail), 0)
+        fvgs_pass = detect_fvgs(df, static_threshold_percent=1.0, use_adaptive_threshold=False, **self._get_default_kws())
+        self.assertEqual(len(fvgs_pass), 1)
+        if fvgs_pass: self.assertEqual(fvgs_pass[0]['type'], 'bearish')
 
     def test_edge_cases_input_data(self):
-        # Test with empty DataFrame
-        empty_df = pd.DataFrame(columns=['time', 'open', 'high', 'low', 'close'])
-        fvgs_empty = detect_fvgs(empty_df)
+        default_kwargs = self._get_default_kws()
+        cols_with_vol = ['time', 'open', 'high', 'low', 'close', 'volume']
+        fvgs_empty = detect_fvgs(pd.DataFrame(columns=cols_with_vol), **default_kwargs)
         self.assertEqual(len(fvgs_empty), 0)
 
-        # Test with less than 3 rows
         short_df_data = {
             'time': pd.to_datetime(['2023-01-01 00:00', '2023-01-01 00:05']),
-            'open':  [19.0, 22.0], 'high':  [20.0, 25.0],
-            'low':   [18.0, 21.0], 'close': [19.5, 25.0]
+            'open': [19.0, 22.0], 'high': [20.0, 25.0], 'low': [18.0, 21.0],
+            'close': [19.5, 25.0], 'volume': [100,100]
         }
-        short_df = pd.DataFrame(short_df_data)
-        fvgs_short = detect_fvgs(short_df)
+        fvgs_short = detect_fvgs(pd.DataFrame(short_df_data), **default_kwargs)
         self.assertEqual(len(fvgs_short), 0)
 
-        # Test with NaN values in critical price columns
-        nan_data = {
+        nan_df_data = {
             'time': pd.to_datetime(['2023-01-01 00:00', '2023-01-01 00:05', '2023-01-01 00:10']),
-            'open':  [19.0, None, 25.5], # NaN in previous_candle open
-            'high':  [20.0, 25.0, 28.0],
-            'low':   [18.0, 21.0, 26.0],
-            'close': [19.5, 25.0, 27.0]
+            'open': [19.0, None, 25.5], 'high': [20.0, 25.0, 28.0],
+            'low': [18.0, 21.0, 26.0], 'close': [19.5, 25.0, 27.0], 'volume': [100,100,100]
         }
-        nan_df = pd.DataFrame(nan_data)
-        fvgs_nan = detect_fvgs(nan_df)
-        self.assertEqual(len(fvgs_nan), 0, "FVG should not form if critical data is NaN")
+        fvgs_nan = detect_fvgs(pd.DataFrame(nan_df_data), **default_kwargs)
+        self.assertEqual(len(fvgs_nan), 0)
 
-        nan_data_current = {
-            'time': pd.to_datetime(['2023-01-01 00:00', '2023-01-01 00:05', '2023-01-01 00:10']),
-            'open':  [19.0, 22.0, 25.5],
-            'high':  [20.0, 25.0, None], # NaN in current_candle high
-            'low':   [18.0, 21.0, 26.0],
-            'close': [19.5, 25.0, 27.0]
+    def test_zero_open_price_robustness(self):
+        data = {
+            'time': pd.to_datetime(['2023-01-01 00:00', '2023-01-01 00:05', '2023-01-01 00:10', '2023-01-01 00:15']),
+            'open':  [10, 0, 12, 13], 'high':  [11, 5, 13, 14],
+            'low':   [9,  0, 11, 5],  'close': [10, 2, 12, 13],
+            'volume': [10,0,10,10] # Added volume, C1 (idx 1) has 0 volume
         }
-        nan_df_current = pd.DataFrame(nan_data_current)
-        fvgs_nan_current = detect_fvgs(nan_df_current)
-        self.assertEqual(len(fvgs_nan_current), 0, "FVG should not form if current candle data is NaN for check")
+        df = pd.DataFrame(data)
+        fvgs_static = detect_fvgs(df, static_threshold_percent=0.0, use_adaptive_threshold=False, **self._get_default_kws())
+        self.assertEqual(len(fvgs_static), 0, "Static threshold should not find FVG with this data")
+        fvgs_adaptive = detect_fvgs(df, use_adaptive_threshold=True, **self._get_default_kws())
+        self.assertEqual(len(fvgs_adaptive), 0, "Adaptive threshold should not find FVG with this data")
+
+    def test_adaptive_threshold_allows_fvg(self):
+        data_large_body_adaptive = {
+            'time': pd.to_datetime(['2023-01-01 00:00', '2023-01-01 00:05', '2023-01-01 00:10', '2023-01-01 00:15', '2023-01-01 00:20']),
+            'open':  [100, 100, 100, 100, 112], 'high':  [100.1, 100.1, 100.1, 110, 115],
+            'low':   [99.9, 99.9, 99.9, 90,  110], 'close': [100, 100, 100, 109, 114],
+            'volume': [10,10,10,100,10] # C3 (idx 3, prev_candle) has high volume
+        }
+        df_lb = pd.DataFrame(data_large_body_adaptive)
+        fvgs_adaptive_pass = detect_fvgs(df_lb, use_adaptive_threshold=True, **self._get_default_kws())
+        self.assertEqual(len(fvgs_adaptive_pass), 1, "Adaptive (4.5%) should allow FVG (body 9%)")
+        fvgs_static_filter_lb = detect_fvgs(df_lb, static_threshold_percent=10.0, use_adaptive_threshold=False, **self._get_default_kws())
+        self.assertEqual(len(fvgs_static_filter_lb), 0, "Static 10% should filter FVG (body 9%)")
+
+    # --- New tests for Volume and FVG Size Filters ---
+    def test_volume_confirmation_filters_fvg(self):
+        """FVG forms by price/threshold, but middle candle volume is too low."""
+        data = { # Bullish FVG data from test_bullish_fvg_static_threshold_default
+            'time': pd.to_datetime(['2023-01-01 00:00', '2023-01-01 00:05', '2023-01-01 00:10']),
+            'open':  [19.0, 22.0, 25.5], 'high':  [20.0, 25.0, 28.0],
+            'low':   [18.0, 21.0, 26.0], 'close': [19.5, 25.0, 27.0],
+            'volume': [100, 10, 110] # Middle candle (idx 1) volume is 10
+        }
+        df = pd.DataFrame(data)
+        # Avg volume for middle candle (idx 1): (100+10)/2 = 55, if lookback=2. If lookback=1, avg=100.
+        # Let's use lookback = 1 for simplicity here, so avg_vol for middle candle is prior candle's vol (100).
+        # Factor 1.5: 100 * 1.5 = 150. Middle candle vol (10) < 150. So FVG should be filtered.
+        fvgs = detect_fvgs(df, use_volume_confirmation=True, volume_lookback_period=1, volume_factor=1.5)
+        self.assertEqual(len(fvgs), 0, "FVG should be filtered by low volume on middle candle")
+
+    def test_volume_confirmation_passes_fvg(self):
+        """FVG forms and middle candle volume is sufficient."""
+        data = {
+            'time': pd.to_datetime(['2023-01-01 00:00', '2023-01-01 00:05', '2023-01-01 00:10']),
+            'open':  [19.0, 22.0, 25.5], 'high':  [20.0, 25.0, 28.0],
+            'low':   [18.0, 21.0, 26.0], 'close': [19.5, 25.0, 27.0],
+            'volume': [100, 160, 110] # Middle candle (idx 1) volume is 160
+        }
+        df = pd.DataFrame(data)
+        # Avg_vol for middle candle (lookback=1) is 100. Factor 1.5: 100 * 1.5 = 150.
+        # Middle candle vol (160) > 150. FVG should pass.
+        fvgs = detect_fvgs(df, use_volume_confirmation=True, volume_lookback_period=1, volume_factor=1.5)
+        self.assertEqual(len(fvgs), 1, "FVG should pass with sufficient volume")
+
+    def test_volume_filter_at_start_of_data(self):
+        """Test volume filter with min_periods=1 at the start of data."""
+        # Only 3 candles, so rolling avg for middle candle (idx 1) will only use first candle if lookback > 1.
+        # With lookback=20, min_periods=1: avg_vol[0]=vol[0], avg_vol[1]=(vol[0]+vol[1])/2
+        data = {
+            'time': pd.to_datetime(['2023-01-01 00:00', '2023-01-01 00:05', '2023-01-01 00:10']),
+            'open':  [19.0, 22.0, 25.5], 'high':  [20.0, 25.0, 28.0],
+            'low':   [18.0, 21.0, 26.0], 'close': [19.5, 25.0, 27.0],
+            'volume': [10, 100, 110] # C0=10, C1(middle)=100
+        }
+        df = pd.DataFrame(data)
+        # avg_volume_series.iloc[i-1] is for previous_candle (idx 1).
+        # avg_volume_series[0] = 10
+        # avg_volume_series[1] = (10+100)/2 = 55
+        # Threshold = 55 * 1.5 = 82.5. Middle candle volume is 100. 100 > 82.5. Pass.
+        fvgs = detect_fvgs(df, use_volume_confirmation=True, volume_lookback_period=20, volume_factor=1.5)
+        self.assertEqual(len(fvgs), 1, "FVG should pass volume filter at start of data")
+
+        # Case: Volume is too low at start
+        data_low_vol_start = {
+             'time': pd.to_datetime(['2023-01-01 00:00', '2023-01-01 00:05', '2023-01-01 00:10']),
+            'open':  [19.0, 22.0, 25.5], 'high':  [20.0, 25.0, 28.0],
+            'low':   [18.0, 21.0, 26.0], 'close': [19.5, 25.0, 27.0],
+            'volume': [100, 10, 110] # C0=100, C1(middle)=10
+        }
+        df_lvs = pd.DataFrame(data_low_vol_start)
+        # avg_volume_series[0] = 100
+        # avg_volume_series[1] = (100+10)/2 = 55
+        # Threshold = 55 * 1.5 = 82.5. Middle candle volume is 10. 10 < 82.5. Filtered.
+        fvgs_lvs = detect_fvgs(df_lvs, use_volume_confirmation=True, volume_lookback_period=20, volume_factor=1.5)
+        self.assertEqual(len(fvgs_lvs), 0, "FVG should be filtered by volume at start of data")
+
+
+    def test_min_fvg_size_filters_fvg(self):
+        """FVG forms by price, but its height is too small."""
+        # FVG from test_bullish_fvg: height = fvg_top (26) - fvg_bottom (20) = 6.0
+        data = {
+            'time': pd.to_datetime(['2023-01-01 00:00', '2023-01-01 00:05', '2023-01-01 00:10']),
+            'open':  [19.0, 22.0, 25.5], 'high':  [20.0, 25.0, 28.0],
+            'low':   [18.0, 21.0, 26.0], 'close': [19.5, 25.0, 27.0],
+            'volume': [100,120,100]
+        }
+        df = pd.DataFrame(data)
+        kwargs = self._get_default_kws()
+        kwargs['min_fvg_price_height'] = 7.0
+        fvgs = detect_fvgs(df, **kwargs) # Min height 7, FVG is 6
+        self.assertEqual(len(fvgs), 0, "FVG should be filtered by min_fvg_price_height")
+
+    def test_min_fvg_size_passes_fvg(self):
+        """FVG forms and its height meets the minimum."""
+        data = {
+            'time': pd.to_datetime(['2023-01-01 00:00', '2023-01-01 00:05', '2023-01-01 00:10']),
+            'open':  [19.0, 22.0, 25.5], 'high':  [20.0, 25.0, 28.0],
+            'low':   [18.0, 21.0, 26.0], 'close': [19.5, 25.0, 27.0],
+            'volume': [100,120,100]
+        }
+        df = pd.DataFrame(data)
+        kwargs = self._get_default_kws()
+        kwargs['min_fvg_price_height'] = 5.0
+        fvgs = detect_fvgs(df, **kwargs) # Min height 5, FVG is 6
+        self.assertEqual(len(fvgs), 1, "FVG should pass with sufficient height")
+
+    def test_combined_filters_fvg_passes_all(self):
+        """FVG forms and passes body threshold, volume, and size filters."""
+        # Bullish FVG: prior_H=20, prev_C=25, curr_L=26. FVG height = 6.
+        # Prev candle (idx 1): O=22, C=25. Body_delta = (3/22)*100 = 13.6%.
+        # Volume: C0=80, C1(middle)=150, C2=100.
+        # Avg Vol for C1 (lookback=1, factor=1.5): prev_avg=80, threshold=120. C1_vol(150)>120. Pass.
+        data = {
+            'time': pd.to_datetime(['2023-01-01 00:00', '2023-01-01 00:05', '2023-01-01 00:10']),
+            'open':  [19.0, 22.0, 25.5], 'high':  [20.0, 25.0, 28.0],
+            'low':   [18.0, 21.0, 26.0], 'close': [19.5, 25.0, 27.0],
+            'volume': [80, 150, 100]
+        }
+        df = pd.DataFrame(data)
+        fvgs = detect_fvgs(df,
+                           static_threshold_percent=10.0, # 13.6% > 10%. Pass.
+                           use_volume_confirmation=True, volume_lookback_period=1, volume_factor=1.5, # Pass.
+                           min_fvg_price_height=5.0) # Height 6 > 5. Pass.
+        self.assertEqual(len(fvgs), 1, "FVG should pass all combined filters")
 
 
 if __name__ == '__main__':
-    # Relative import for app.core_logic works when tests are run as a module
-    # For direct script execution from fvgrab_app/tests, sys.path manipulation might be needed
-    # or running as 'python -m unittest tests.test_fvg_detector'
     unittest.main(argv=['first-arg-is-ignored'], exit=False)

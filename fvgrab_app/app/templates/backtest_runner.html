@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>FVGrab - Backtester</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f9; color: #333; }
+        h1, h3 { color: #2c3e50; }
+        .container { max-width: 1000px; margin: auto; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        .form-section { margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9;}
+        .form-section h3 { margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; }
+        input[type="text"], input[type="number"], select {
+            width: calc(100% - 12px);
+            margin-bottom: 12px;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        input[type="checkbox"] { margin-right: 5px; vertical-align: middle; }
+        .checkbox-label { font-weight: normal; }
+        button[type="submit"] {
+            background-color: #3498db; color: white; padding: 10px 15px;
+            border: none; border-radius: 4px; cursor: pointer; font-size: 16px;
+        }
+        button[type="submit"]:hover { background-color: #2980b9; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; font-size: 0.9em; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background-color: #e8f4fd; color: #333; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        .results-section { margin-top: 30px; padding: 15px; background-color: #fff; border: 1px solid #ddd; border-radius: 5px;}
+        .results-section h3 { border-bottom: 1px solid #eee; padding-bottom: 10px;}
+        .error { color: #c0392b; font-weight: bold; }
+        .loading { font-style: italic; color: #7f8c8d; }
+        pre { background-color: #ecf0f1; padding: 10px; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>FVGrab Backtester</h1>
+
+        <form id="backtestForm">
+            <div class="form-section">
+                <h3>Market & Data</h3>
+                <label for="symbol">Symbol:</label>
+                <input type="text" id="symbol" name="symbol" value="BTCUSDT" required>
+
+                <label for="interval">Interval (Bybit):</label>
+                <input type="text" id="interval" name="interval" value="60" required placeholder="e.g., 1, 5, 15, 60, D, W">
+
+                <label for="category">Category:</label>
+                <input type="text" id="category" name="category" value="linear">
+
+                <label for="data_limit">Data Limit (Candles):</label>
+                <input type="number" id="data_limit" name="data_limit" value="500" min="50" max="2000">
+            </div>
+
+            <div class="form-section">
+                <h3>FVG Detection Parameters</h3>
+                <label for="fvg_static_threshold_percent">Static Threshold % (e.g., 0.5 for 0.5%):</label>
+                <input type="number" id="fvg_static_threshold_percent" name="fvg_static_threshold_percent" value="0.0" step="0.01">
+
+                <label class="checkbox-label"><input type="checkbox" id="fvg_use_adaptive_threshold" name="fvg_use_adaptive_threshold"> Use Adaptive Threshold</label>
+                <br><br>
+                <label class="checkbox-label"><input type="checkbox" id="fvg_use_volume_confirmation" name="fvg_use_volume_confirmation"> Use Volume Confirmation</label>
+
+                <label for="fvg_volume_lookback_period">Volume Lookback Period:</label>
+                <input type="number" id="fvg_volume_lookback_period" name="fvg_volume_lookback_period" value="20" min="1">
+
+                <label for="fvg_volume_factor">Volume Factor:</label>
+                <input type="number" id="fvg_volume_factor" name="fvg_volume_factor" value="1.5" step="0.1" min="0.1">
+
+                <label for="fvg_min_price_height">Min FVG Height (absolute price units):</label>
+                <input type="number" id="fvg_min_price_height" name="fvg_min_price_height" value="0.0" step="0.00001" min="0">
+            </div>
+
+            <div class="form-section">
+                <h3>Backtester Settings</h3>
+                <label for="initial_balance">Initial Balance:</label>
+                <input type="number" id="initial_balance" name="initial_balance" value="10000.0" step="100">
+
+                <label for="commission_percent">Commission % (e.g., input 0.075 for 0.075%):</label>
+                <input type="number" id="commission_percent" name="commission_percent" value="0.075" step="0.001">
+
+                <label for="risk_per_trade_percent">Risk Per Trade % (e.g., input 1 for 1%):</label>
+                <input type="number" id="risk_per_trade_percent" name="risk_per_trade_percent" value="1.0" step="0.1" min="0.01" max="100">
+
+                <label for="risk_free_rate_annual">Annual Risk-Free Rate % (e.g., input 2 for 2%):</label>
+                <input type="number" id="risk_free_rate_annual" name="risk_free_rate_annual" value="0.0" step="0.1">
+            </div>
+
+            <button type="submit">Run Backtest</button>
+        </form>
+
+        <div id="statusMessages" class="results-section"></div>
+
+        <div id="metricsResult" class="results-section">
+            <h3>Performance Metrics</h3>
+            <pre></pre>
+        </div>
+
+        <div id="tradesResult" class="results-section">
+            <h3>Trades</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Type</th><th>Entry Time</th><th>Entry Price</th>
+                        <th>Exit Time</th><th>Exit Price</th><th>SL</th><th>TP</th>
+                        <th>Status</th><th>PNL Abs.</th><th>PNL % (Risked)</th><th>Commission</th>
+                        <th>Pos. Size</th><th>Amt. Risked</th><th>Balance After</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+    <script src="/static/js/backtest.js"></script>
+</body>
+</html>
