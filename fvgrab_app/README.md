@@ -2,7 +2,7 @@
 
 ## Overview
 
-FVGrab is a Python-based application designed to detect Fair Value Gaps (FVGs) in financial market data, primarily focusing on cryptocurrency markets via the Bybit API. It provides tools for fetching historical data, identifying FVG patterns, and backtesting basic FVG-based trading strategies. The application is built using FastAPI for its backend API and WebSocket communication.
+FVGrab is a Python-based application designed to detect Fair Value Gaps (FVGs) in financial market data, primarily focusing on cryptocurrency markets via the Bybit API. It provides tools for fetching historical data, identifying FVG patterns, backtesting FVG-based trading strategies, and scanning multiple symbols for current FVGs. The application is built using FastAPI for its backend API and WebSocket communication.
 
 ## Current Features
 
@@ -22,10 +22,16 @@ FVGrab is a Python-based application designed to detect Fair Value Gaps (FVGs) i
 *   **Historical Data:** Fetches historical kline (OHLCV) data using Bybit's v5 API (`get_historical_klines_bybit`).
 *   **WebSocket for Live Data:** Setup for live kline data streaming via Bybit's v5 WebSocket API (`start_kline_websocket`).
 
-### FastAPI Backend (`app.main`, `app.api.fvg_router`)
+### Symbol Scanner Service (`app.services.scanner_service`)
+*   **Multi-Symbol Scanning:** Concurrently scans a list of symbols over a specified interval for FVGs using `scan_symbols_for_fvgs`.
+*   Utilizes the FVG detection logic with configurable parameters.
+*   Handles API errors per symbol gracefully.
+
+### FastAPI Backend (`app.main`, `app.api.*_router.py`)
 *   **REST API:**
     *   `GET /api/v1/fvgs/historical`: Endpoint to fetch historical kline data and detect FVGs using configurable detection parameters.
-    *   `POST /api/v1/backtest/run`: Endpoint to run a full backtest using specified market parameters, FVG detection settings, and backtester configurations (initial balance, risk, commission). Returns detailed trade lists and performance metrics.
+    *   `POST /api/v1/backtest/run`: Endpoint to run a full backtest using specified market parameters, FVG detection settings, and backtester configurations. Returns detailed trade lists and performance metrics.
+    *   `POST /api/v1/scanner/run-scan`: Accepts a list of symbols, intervals, and FVG detection parameters to scan for current FVGs concurrently.
 *   **WebSocket API:**
     *   `WS /api/v1/ws/fvg-stream/{category}/{symbol}/{interval}`: Endpoint designed to stream newly detected FVGs in real-time, using configurable FVG detection parameters per stream.
 *   Basic static file serving and HTML template rendering for UI pages (`/`, `/ui/backtester`).
@@ -37,121 +43,60 @@ FVGrab is a Python-based application designed to detect Fair Value Gaps (FVGs) i
     *   Manages a single active trade at a time.
     *   Exits trades based on Stop-Loss or Take-Profit levels.
 *   **PNL Calculation:** Calculates Profit and Loss (PNL) for each trade, accounting for percentage-based commissions and variable position sizes. `pnl_percent` is calculated as return on risked capital.
-*   **Performance Metrics:** `calculate_performance_metrics` function computes a comprehensive set of metrics:
-    *   Total Trades, Winning/Losing/Neutral Trades, Win/Loss Rate, Profit Factor.
-    *   Total Net PNL (Absolute), Average PNL per Trade, Average Profit/Loss per Winning/Losing Trade.
-    *   Average Holding Time, Total Commissions Paid.
-    *   Maximum Drawdown (percentage of equity), Final and Peak Equity.
-    *   A simplified Sharpe Ratio (based on per-trade percentage returns on risked capital).
+*   **Performance Metrics:** `calculate_performance_metrics` function computes a comprehensive set of metrics (Win Rate, Profit Factor, Max Drawdown, simplified Sharpe Ratio, etc.).
 
 ### Basic Web Interface
 *   `/ui/backtester`: An HTML page with a form to input all parameters for running a backtest and display the results (metrics and trades table) dynamically using JavaScript.
 
 ## How to Run
 
-1.  **Prerequisites:**
-    *   Python 3.8+ (developed with 3.10-3.12 in mind).
-    *   Pip for package installation.
-
-2.  **Clone Repository (Example):**
-    ```bash
-    # git clone <repository_url>
-    # cd fvgrab_app
-    ```
-
-3.  **Install Dependencies:**
-    Navigate to the `fvgrab_app` project root directory and run:
-    ```bash
-    pip install -r requirements.txt
-    ```
-    (Ensure `httpx` is included for `TestClient` functionality if running test scripts that use it).
-
-4.  **Run the FastAPI Application:**
-    From within the `fvgrab_app` directory, execute:
-    ```bash
-    python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-    ```
-
+1.  **Prerequisites:** Python 3.8+, Pip.
+2.  **Clone/Setup:** Get the code into `fvgrab_app` directory.
+3.  **Install Dependencies:** `cd fvgrab_app && pip install -r requirements.txt`
+4.  **Run Application:** `python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000` (from `fvgrab_app` directory).
 5.  **Access Application:**
-    *   **API Docs (Swagger UI):** `http://localhost:8000/docs`
-    *   **Backtester UI:** `http://localhost:8000/ui/backtester`
-    *   **Root Page:** `http://localhost:8000/`
+    *   API Docs (Swagger UI): `http://localhost:8000/docs`
+    *   Backtester UI: `http://localhost:8000/ui/backtester`
+    *   Root Page: `http://localhost:8000/`
 
-## Project Structure
+## Project Structure (Key Components)
 
-*   `fvgrab_app/`
-    *   `app/`: Main application module.
-        *   `main.py`: FastAPI app initialization, UI endpoints.
-        *   `api/fvg_router.py`: API (REST & WebSocket) and Backtest endpoints.
-        *   `core_logic/fvg_detector.py`: FVG detection algorithms.
-        *   `core_logic/backtester.py`: Backtesting engine and performance metrics.
-        *   `services/bybit_service.py`: Bybit API interaction (REST & WebSocket).
-        *   `static/js/backtest.js`: Client-side JavaScript for the backtester UI.
-        *   `templates/backtest_runner.html`: HTML for the backtester UI.
-        *   `templates/index.html`: Basic landing page.
-    *   `tests/`: Unit tests.
-        *   `test_fvg_detector.py`: Tests for FVG detection logic.
-        *   `test_backtester.py`: Tests for the backtesting engine.
-    *   `tools/`: Utility/test scripts.
-        *   `test_bybit_rest.py`: Script for testing Bybit REST API connectivity.
-        *   `test_backtest_api_nofetch.py`: Script for testing backtest API endpoint error handling.
-    *   `requirements.txt`: Python package dependencies.
-    *   `README.md`: This file.
+*   `fvgrab_app/app/main.py`: FastAPI app initialization, UI endpoints.
+*   `fvgrab_app/app/api/`: API routers (`fvg_router.py`, `scanner_router.py`).
+*   `fvgrab_app/app/core_logic/`: Business logic (`fvg_detector.py`, `backtester.py`).
+*   `fvgrab_app/app/services/`: External services (`bybit_service.py`, `scanner_service.py`).
+*   `fvgrab_app/app/static/` & `app/templates/`: Basic frontend files.
+*   `fvgrab_app/tests/`: Unit tests.
+*   `fvgrab_app/tools/`: Utility/manual test scripts.
 
 ## Dependencies
-
-Key Python libraries used: FastAPI, Uvicorn, Pybit, Pandas, Numpy, Jinja2, HTTPX (for TestClient).
+FastAPI, Uvicorn, Pybit, Pandas, Numpy, Jinja2, HTTPX.
 
 ## Project Status Summary (Based on Sandbox Investigations)
 
-This section summarizes the operational status of key components based on testing within the development sandbox environment.
-
-*   **Bybit REST API Connectivity:** Live fetching of historical kline data via Bybit's REST API (e.g., for backtests or historical FVG analysis) is currently **blocked**. Bybit returns a `403 Forbidden` error, likely due to IP address restrictions (geo-blocking or general cloud IP block) from the execution environment. The application's service layer (`bybit_service.py`) correctly handles this error and returns `None`, which in turn causes API endpoints relying on this data to report service unavailability (e.g., HTTP 503).
-    *   _Impact:_ End-to-end testing of features requiring live Bybit historical data is not possible in this environment. The logic is implemented but cannot be fully validated against live API responses.
-
-*   **Bybit WebSocket Subscription:** Subscription to live kline data via Bybit WebSockets (using `pybit` v5.11.0) is **non-functional**. Attempts to subscribe (e.g., to `kline.1.BTCUSDT`) consistently result in a `TypeError: 'bool' object is not iterable` originating from within the `pybit` library's `prepare_subscription_args` function. This issue persists across various tested calling patterns and topic types.
-    *   _Impact:_ The live FVG streaming WebSocket endpoint (`/api/v1/ws/fvg-stream/...`) cannot receive data from Bybit and is therefore not operational for its primary purpose.
-
+*   **Bybit REST API Connectivity:** Live fetching of historical kline data is **blocked** (Bybit returns 403 Forbidden, likely IP restriction). `bybit_service.py` handles this error. Backtests and historical FVG analysis needing live data are impacted in this environment. The scanner API endpoint, for instance, was tested and correctly returns empty results due to this.
+*   **Bybit WebSocket Subscription:** **Non-functional**. Attempts to subscribe via `pybit` v5.11.0 result in a `TypeError: 'bool' object is not iterable` within `pybit`. Live FVG streaming is not operational.
 *   **Unit Test Execution:**
-    *   **Import Resolution:** `ModuleNotFoundError` issues previously encountered when running tests were **resolved** by ensuring the `PYTHONPATH` environment variable was set to the project root (`/app/fvgrab_app`) during test execution. This allowed `unittest` to correctly discover and import modules from the `app` package.
-    *   **`test_fvg_detector.py`:** All 14 tests in this suite **PASS**. This indicates the FVG detection logic, including static and adaptive thresholds, volume confirmation, and minimum FVG size filters, is functioning as expected according to the defined test cases.
-    *   **`test_backtester.py`:** Currently, 2 out of 4 tests are **FAILING**. These failures are due to a persistent `KeyError: 'fvg_type'` when `backtester.py` attempts to access `fvg['fvg_type']` from an FVG dictionary. The FVG dictionaries produced by `fvg_detector.py` use the key `'type'`. Multiple attempts to correct this key access in `backtester.py` (changing to `fvg['type']`) using file overwrite tools have not been reflected at runtime in the execution environment, suggesting a possible file caching, update propagation, or module reloading issue within the sandbox.
-        *   _Impact:_ The core backtesting logic, including risk-based position sizing and PNL calculations, is implemented but cannot be fully verified by its unit tests in this environment due to this runtime anomaly preventing the code fix from taking effect.
-
+    *   `ModuleNotFoundError` for tests was resolved by setting `PYTHONPATH=/app/fvgrab_app`.
+    *   `test_fvg_detector.py` (14 tests): **All PASS**. FVG detection logic (including adaptive thresholds, volume, and size filters) is functioning as expected.
+    *   `test_scanner_service.py` (6 tests): **All PASS**. Scanner service orchestration logic is correct under mocked conditions.
+    *   `test_backtester.py` (4 tests): 2 tests **FAILING** due to a persistent `KeyError: 'fvg_type'`. This indicates an issue where code corrections in `backtester.py` (changing `fvg['fvg_type']` to `fvg['type']`) are not reflected at runtime in the sandbox, possibly due to file caching or module reloading issues. Core backtesting logic with position sizing is implemented but not fully verifiable by its tests due to this.
 *   **Overall Application State:**
-    *   The application's codebase includes a comprehensive FVG detection engine with multiple filters, a backtesting engine featuring risk-based position sizing and detailed performance metrics, FastAPI endpoints for accessing these features (REST for historical/backtest, WebSocket for intended live streaming), and a basic web UI for triggering backtests.
-    *   The core FVG detection logic is unit-tested and confirmed to be working correctly.
-    *   The backtesting API endpoint (`/api/v1/backtest/run`) is structurally sound and handles errors related to data fetching as expected (verified using `TestClient`).
-    *   **Key Blockers:**
-        1.  External Bybit API access (both REST and WebSocket) is restricted/non-functional in the current environment.
-        2.  A runtime issue is preventing a necessary code correction in `backtester.py` from being applied, which blocks full unit test validation of the backtesting engine.
+    *   Core FVG detection and backtesting engines are implemented with key features. FastAPI endpoints provide access to these. A basic UI for backtests exists.
+    *   FVG detection and scanner service logic are unit-tested and largely passing.
+    *   **Key Blockers:** Bybit API access restrictions and the runtime code update issue for `backtester.py` prevent full end-to-end validation and functionality of live data features and some backtesting test cases.
 
 ## Known Limitations & TODOs (General)
-
-*   **Backtester Enhancements:**
-    *   Implement more advanced order execution simulation (slippage modeling).
-    *   Add logic to handle trades open at the end of historical data.
-    *   Consider FVG expiration if not entered within N candles.
-    *   Implement variable position sizing beyond the current risk-percentage model (e.g., fixed monetary amount, Kelly criterion).
-*   **Performance Metrics:**
-    *   Implement a more rigorous, annualized Sharpe Ratio.
-    *   Calculate Buy and Hold return for comparison in backtests.
-    *   Generate data for equity curve plotting.
-    *   Add other metrics like Sortino Ratio, Calmar Ratio, win/loss streaks.
-*   **API & Service Layer:**
-    *   Implement robust retry mechanisms for Bybit API calls.
-    *   For WebSockets: Investigate `pybit` TypeError or alternative libraries if it persists; implement auto-reconnect and health monitoring for WebSocket connections.
-    *   Consider pagination for API endpoints that might return large lists of data (e.g., historical FVGs over very long periods).
-*   **Configuration & Logging:**
-    *   Implement robust application configuration (e.g., using Pydantic settings, environment variables for API keys, testnet toggles, logging levels).
-    *   Set up centralized, structured logging.
-*   **Frontend UI:** Develop a more comprehensive frontend UI for better interaction with all application features.
-*   Refer to specific `TODO` comments embedded within the source code for more granular planned enhancements and known minor issues.
+*   **Resolve `backtester.py` Runtime Issue:** Investigate why changes to `backtester.py` (correcting `fvg_type` key access) are not reflected in the test execution environment.
+*   **Backtester Enhancements:** Slippage modeling, handling of trades open at data end, more position sizing models.
+*   **Performance Metrics:** More rigorous Sharpe Ratio, Buy & Hold return, Sortino, Calmar, etc.
+*   **API & Service Layer:** Robust retry for Bybit REST calls; investigate `pybit` WebSocket `TypeError` or alternatives; API pagination.
+*   **Configuration & Logging:** Centralized and environment-driven configuration; structured logging.
+*   **Frontend UI:** Develop a more comprehensive frontend.
+*   Refer to specific `TODO` comments in the source code.
 
 ## Contributing (Placeholder)
-
-Contributions to FVGrab are welcome! If you'd like to contribute, please feel free to fork the repository (if applicable), make your changes, and submit a pull request. For major changes, please open an issue first to discuss what you would like to change.
+Contributions welcome. Please open an issue for major changes.
 
 ---
-
-*This README provides a snapshot of the project's status and capabilities. Refer to the source code and inline comments for the most detailed and up-to-date information.*
+*This README provides a snapshot of the project's status. Refer to source code and inline comments for details.*
