@@ -1,6 +1,16 @@
 import pandas as pd
 import unittest
 import numpy as np
+import sys
+import os
+
+# Add the project root directory (fvgrab_app) to sys.path
+# This allows imports like `from app.core_logic...`
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_dir) # This should be 'fvgrab_app'
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 from app.core_logic.fvg_detector import detect_fvgs
 
 class TestFVGDetector(unittest.TestCase):

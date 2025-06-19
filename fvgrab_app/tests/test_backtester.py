@@ -1,8 +1,17 @@
 import unittest
 import pandas as pd
 from datetime import datetime
-# Removed sys.path manipulation - assuming tests are run such that 'app' is discoverable.
-# e.g., by running `python -m unittest discover -s tests` from `fvgrab_app` directory.
+import sys
+import os
+
+# Add the project root directory (fvgrab_app) to sys.path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_dir) # This should be 'fvgrab_app'
+print(f"DEBUG: In test_backtester.py, __file__ is {__file__}")
+print(f"DEBUG: Calculated project_root is {project_root}")
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+print(f"DEBUG: sys.path in test_backtester.py is now: {sys.path}")
 
 from app.core_logic.backtester import run_backtest
 from app.core_logic.fvg_detector import detect_fvgs # To verify FVG detection for test setup
@@ -61,8 +70,8 @@ class TestBacktester(unittest.TestCase):
 
         backtest_results = run_backtest(
             ohlcv_df=self.ohlcv_df.copy(), # Pass a copy
-            fvg_detection_threshold_percent=self.fvg_params["static_threshold_percent"],
-            # Assuming detect_fvgs inside backtester uses defaults for other new filters
+            static_threshold_percent=self.fvg_params["static_threshold_percent"], # Corrected parameter name
+            # Other FVG params will use defaults from run_backtest signature
             initial_balance=initial_balance,
             commission_percent=commission_percent,
             risk_per_trade_percent=risk_per_trade_percent

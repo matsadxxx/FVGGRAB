@@ -4,3 +4,4 @@ pybit
 pandas
 numpy
 jinja2
+httpx
